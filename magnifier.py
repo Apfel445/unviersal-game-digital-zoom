@@ -84,6 +84,11 @@ class HotkeyThread(QThread):
 
 class ScreenMagnifierApp:
     """Main application class for the screen magnifier"""
+
+    # Settings keys that require the crosshair config cache to be rebuilt.
+    _CROSSHAIR_SETTING_KEYS = frozenset(
+        {"crosshair_size", "crosshair_thickness", "crosshair_color", "enable_center_dot"}
+    )
     
     def __init__(self):
         """
@@ -124,6 +129,14 @@ class ScreenMagnifierApp:
         
         # Fixed position for snap to center mode
         self.fixed_position = None
+        
+        # Pre-built crosshair config dict; updated by on_settings_changed() when needed.
+        self._crosshair_config = {
+            "crosshair_size": self.config.crosshair_size,
+            "crosshair_thickness": self.config.crosshair_thickness,
+            "crosshair_color": self.config.crosshair_color,
+            "enable_center_dot": self.config.enable_center_dot
+        }
         
         # Show control panel
         self.control_panel.show()
@@ -259,14 +272,7 @@ class ScreenMagnifierApp:
         
         # Add crosshair AFTER scaling so it stays normal size on top
         if show_crosshair:
-            # Get crosshair settings from config using properties
-            crosshair_config = {
-                "crosshair_size": self.config.crosshair_size,
-                "crosshair_thickness": self.config.crosshair_thickness,
-                "crosshair_color": self.config.crosshair_color,
-                "enable_center_dot": self.config.enable_center_dot
-            }
-            scaled_image = self.screen_capture.add_crosshair(scaled_image, crosshair_config)
+            scaled_image = self.screen_capture.add_crosshair(scaled_image, self._crosshair_config)
         
         # Update the isolated overlay display
         self.magnifier_overlay.update_display(scaled_image)
@@ -339,6 +345,15 @@ class ScreenMagnifierApp:
                 print("Switched to follow mouse mode")
             else:
                 print("Switched to fixed position mode")
+        
+        # Refresh the cached crosshair config if any related setting changed.
+        if self._CROSSHAIR_SETTING_KEYS & new_settings.keys():
+            self._crosshair_config = {
+                "crosshair_size": self.config.crosshair_size,
+                "crosshair_thickness": self.config.crosshair_thickness,
+                "crosshair_color": self.config.crosshair_color,
+                "enable_center_dot": self.config.enable_center_dot
+            }
         
         print("Settings updated!")
     

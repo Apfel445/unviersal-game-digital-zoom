@@ -6,10 +6,20 @@ from typing import Tuple, Optional
 
 class ScreenCapture:
     """Simplified screen capture for magnifier"""
-    
+
+    # Map interpolation mode strings to OpenCV constants once at class level
+    # to avoid rebuilding this dict on every call to scale_image().
+    _INTERPOLATION_MAP = {
+        "nearest": cv2.INTER_NEAREST,
+        "linear": cv2.INTER_LINEAR,
+        "cubic": cv2.INTER_CUBIC,
+    }
+
     def __init__(self):
         self.sct = mss.mss()
         self.monitors = self.sct.monitors
+        # Cache hex color strings → BGR tuples to avoid re-parsing every frame.
+        self._color_cache: dict[str, tuple[int, int, int]] = {}
     
     def cleanup(self):
         """Clean up screen capture resources"""
@@ -77,22 +87,17 @@ class ScreenCapture:
         if image is None:
             return None
         
-        # Skip scaling if zoom level is 1.0 (no change needed)
+        # Skip scaling if zoom level is 1.0 (no change needed).
+        # Return the original reference; add_crosshair() will copy it if needed.
         if abs(zoom_level - 1.0) < 0.01:
-            return image.copy()
+            return image
         
         height, width = image.shape[:2]
         new_width = int(width * zoom_level)
         new_height = int(height * zoom_level)
         
-        # Map interpolation mode to OpenCV constant
-        interpolation_map = {
-            "nearest": cv2.INTER_NEAREST,
-            "linear": cv2.INTER_LINEAR,
-            "cubic": cv2.INTER_CUBIC
-        }
-        
-        interpolation = interpolation_map.get(interpolation_mode, cv2.INTER_NEAREST)
+        # Map interpolation mode to OpenCV constant using the class-level constant.
+        interpolation = self._INTERPOLATION_MAP.get(interpolation_mode, cv2.INTER_NEAREST)
         
         # Use optimized resize for better performance
         scaled = cv2.resize(image, (new_width, new_height), interpolation=interpolation)
@@ -116,10 +121,12 @@ class ScreenCapture:
         crosshair_color = config.get("crosshair_color", "#00FF00")
         enable_center_dot = config.get("enable_center_dot", True)
         
-        # Convert hex color to BGR
-        color_hex = crosshair_color.lstrip('#')
-        color_rgb = tuple(int(color_hex[i:i+2], 16) for i in (0, 2, 4))
-        color_bgr = (color_rgb[2], color_rgb[1], color_rgb[0])  # RGB to BGR
+        # Convert hex color to BGR, using the cache to avoid re-parsing every frame.
+        if crosshair_color not in self._color_cache:
+            color_hex = crosshair_color.lstrip('#')
+            color_rgb = tuple(int(color_hex[i:i+2], 16) for i in (0, 2, 4))
+            self._color_cache[crosshair_color] = (color_rgb[2], color_rgb[1], color_rgb[0])
+        color_bgr = self._color_cache[crosshair_color]
         
         # Limit crosshair size to image bounds
         crosshair_size = min(crosshair_size, min(w, h) // 4)
